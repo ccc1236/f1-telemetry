@@ -3,13 +3,10 @@
 import { useState, useEffect } from 'react';
 import { Hero } from '@/app/home/sections/Hero';
 import { Schedule } from '@/app/home/sections/Schedule';
-import { MS_PER_HOUR } from '@/constants/numbers';
 import calendarData from '@/data/calendar.json';
 import circuitsData from '@/data/circuits.json';
 import type { RaceEntry } from '@/types/data';
 import { Footer } from '@/components/layout/Footer';
-
-const LIVE_THRESHOLD_MS = MS_PER_HOUR;
 
 const races = calendarData as unknown as RaceEntry[];
 
@@ -20,7 +17,10 @@ function getCurrentGrandPrix(): RaceEntry {
       new Date(s).getTime()
     );
     const lastSession = new Date(Math.max(...sessionDates));
-    return lastSession > now;
+    // Keep the GP active for the rest of its last session's local day.
+    const endOfLastDay = new Date(lastSession);
+    endOfLastDay.setHours(23, 59, 59, 999);
+    return endOfLastDay.getTime() > now.getTime();
   });
   return current || races[races.length - 1];
 }
@@ -47,10 +47,6 @@ export default function HomePage() {
     ? new Date(nextSession[1])
     : new Date(sessionEntries[sessionEntries.length - 1][1]);
 
-  const isLiveActive = nextSession
-    ? targetDate.getTime() - now <= LIVE_THRESHOLD_MS
-    : false;
-
   return (
     <div className="flex min-h-dvh flex-col bg-background selection:bg-foreground/10 text-foreground relative font-sans">
       {/* Fixed Dotted Background */}
@@ -63,7 +59,6 @@ export default function HomePage() {
           currentGp={currentGp}
           targetDate={targetDate}
           nextSession={nextSession}
-          isLiveActive={isLiveActive}
           isClient={isClient}
           circuitInfo={circuitInfo}
         />
