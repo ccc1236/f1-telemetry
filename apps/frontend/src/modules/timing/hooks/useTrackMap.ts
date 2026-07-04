@@ -556,8 +556,6 @@ export function useTrackMap(): TrackMapData {
       }
     }
 
-    driversRef.current = newDrivers;
-
     for (const key of Object.keys(trackStateRef.current)) {
       if (!newDrivers[key]) delete trackStateRef.current[key];
     }
@@ -580,6 +578,8 @@ export function useTrackMap(): TrackMapData {
     if (hasChanged) {
       driverRevRef.current++;
     }
+
+    driversRef.current = newDrivers;
 
     if (driverRevRef.current !== prevDriverRevRef.current) {
       prevDriverRevRef.current = driverRevRef.current;
