@@ -2,7 +2,7 @@ import { F1Client } from '@services/f1-client';
 import { SocketServer } from '@services/socket-server';
 import { Logger } from '@utils/logger';
 
-const PORT = parseInt(process.env.PORT ?? '8080', 10);
+const PORT = parseInt(process.env.PORT ?? '8090', 10);
 
 let socketServer: SocketServer | null = null;
 

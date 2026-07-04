@@ -169,7 +169,7 @@ class F1WebSocketClient {
   }
 }
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:8080/ws';
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:8090/ws';
 
 export const wsClient = new F1WebSocketClient(WS_URL);
 

@@ -1,42 +1,35 @@
 FROM node:22-slim AS base
-RUN corepack enable && corepack prepare pnpm@10.10.0 --activate
+RUN corepack enable && corepack prepare pnpm@10 --activate
 WORKDIR /app
 
-# Copy lockfile and package manifests for layer caching
-COPY pnpm-lock.yaml package.json ./
+COPY pnpm-lock.yaml package.json pnpm-workspace.yaml ./
 COPY core/package.json core/
 COPY apps/backend/package.json apps/backend/
+COPY apps/frontend/package.json apps/frontend/
 
-# Override workspace config to only include packages needed for the backend
-RUN printf 'packages:\n  - "core"\n  - "apps/backend"\n' > pnpm-workspace.yaml
+# Flat hoist avoids broken .bin symlinks in pnpm's virtual store
+RUN echo "shamefully-hoist=true" > .npmrc && pnpm install --no-frozen-lockfile --prod=false
 
-# Install all dependencies (dev included for build)
-RUN pnpm install --no-frozen-lockfile --prod=false
-
-# Copy source code
 COPY core/ core/
 COPY apps/backend/ apps/backend/
 
-# Build shared types then backend (tsc-alias rewrites path aliases)
-RUN pnpm --filter @f1-telemetry/core build && pnpm --filter backend build
+# Prepend root node_modules/.bin to PATH so all hoisted binaries resolve correctly
+ENV PATH="/app/node_modules/.bin:$PATH"
+
+RUN tsc --project core/tsconfig.json && \
+    tsc --project apps/backend/tsconfig.json && \
+    tsc-alias --project apps/backend/tsconfig.json
 
 # --- Production stage ---
 FROM node:22-slim AS production
-RUN corepack enable && corepack prepare pnpm@10.10.0 --activate
 WORKDIR /app
 
-COPY pnpm-lock.yaml package.json ./
-COPY core/package.json core/
-COPY apps/backend/package.json apps/backend/
-
-RUN printf 'packages:\n  - "core"\n  - "apps/backend"\n' > pnpm-workspace.yaml
-
-RUN pnpm install --no-frozen-lockfile --prod
-
-# Copy built output
+COPY --from=base /app/node_modules node_modules
 COPY --from=base /app/core/dist core/dist
 COPY --from=base /app/core/package.json core/
 COPY --from=base /app/apps/backend/dist apps/backend/dist
+COPY --from=base /app/apps/backend/package.json apps/backend/
+COPY --from=base /app/package.json .
 
 ENV PORT=8080
 EXPOSE 8080

@@ -3,7 +3,7 @@ import { resolve } from 'path';
 import { SocketServer } from '@services/socket-server';
 import { Logger } from '@utils/logger';
 
-const PORT = parseInt(process.env.PORT ?? '8080', 10);
+const PORT = parseInt(process.env.PORT ?? '8090', 10);
 const REPLAY_INTERVAL_MS = parseInt(process.env.REPLAY_INTERVAL ?? '100', 10);
 
 interface ReplayFrame {

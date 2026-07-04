@@ -1,6 +1,7 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
   transpilePackages: ['@f1-telemetry/core'],
   webpack(config) {
     config.module.rules.push({
