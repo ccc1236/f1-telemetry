@@ -74,7 +74,7 @@ export function TrackMap({ className }: TrackMapProps) {
       for (const [driverNo, el] of dotRefs.current) {
         const percent = projected[driverNo];
         if (Number.isFinite(percent)) {
-          el.style.offsetDistance = `${percent}%`;
+          el.style.offsetDistance = `${((percent % 100) + 100) % 100}%`;
         }
       }
       frameIdRef.current = requestAnimationFrame(animate);
