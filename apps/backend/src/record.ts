@@ -265,8 +265,8 @@ async function connect(): Promise<void> {
   statusIntervalId.unref();
 }
 
-// Decompresses .z channels and strips the .z suffix so the output matches
-// the channel names the frontend expects (e.g. "CarData" not "CarData.z").
+// Decompresses .z channels while preserving the channel name. The frontend
+// matches on the literal names in CHANNELS, which keep the .z suffix.
 function resolveChannel(
   channelName: string,
   rawData: unknown
@@ -277,7 +277,7 @@ function resolveChannel(
       Logger.warn(`Decompression failed for ${channelName} — frame dropped`);
       return null;
     }
-    return { channel: channelName.slice(0, -2), data: decompressed };
+    return { channel: channelName, data: decompressed };
   }
   return { channel: channelName, data: rawData };
 }
