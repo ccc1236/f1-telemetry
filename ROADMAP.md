@@ -4,18 +4,11 @@ Working roadmap for this self-hosted fork. Not upstream planning.
 
 ## Planned
 
-### Historical race replay from the F1 archive
-Download completed sessions so missed races can be watched in the dashboard.
-
-- Build an **archive → replay converter**: fetch a completed session's
-  `.jsonStream` files from `livetiming.formula1.com/static/…` and transform
-  them into the project's `ReplayFrame` JSON that `replay.ts` already reads.
-- Support a **race-only** option (skip FP/Q) — each session is a separate
-  archive entry, so filtering to `"Race"` is a one-line filter.
-- Size is a non-issue: ~10 MB per race (matches the bundled Suzuka race),
-  so all 9 completed 2026 races ≈ ~90 MB.
-- Byproduct: yields real per-track mini-sector counts (e.g. Monaco), which
-  are otherwise undocumented.
+### Trim dead air in converted sessions (optional)
+Real-time pacing is faithful but includes everything the feed carried. Converted
+Monaco is 124,858 frames — **208 minutes**, of which 37% are empty padding, mostly
+pre-session waiting. A `--trim-gaps` flag could collapse long idle stretches.
+Workaround today: `REPLAY_INTERVAL=25 pnpm dev:replay <file>` for 4x speed.
 
 ### Smooth the start/finish position gap (cosmetic, low priority)
 `NumberOfLaps` increments ~4s before the per-segment reset, so a car's
@@ -41,6 +34,21 @@ same logic against the live feed produced 6 jumps in 910 lap boundaries.
 Recordings remain fine for UI/replay work.
 
 ## Shipped
+
+- **Historical race replay from the F1 archive.** `pnpm archive <name|--round N|--all>`
+  converts a completed session from `livetiming.formula1.com/static` into
+  `ReplayFrame` JSON that `replay.ts` plays. `--list` shows the season; sprints are
+  available behind `--sprint`/`--sprints`.
+  - Telemetry is stored still-compressed and inflated by `replay.ts`, keeping a race
+    at ~20 MB instead of ~150 MB. Monaco converts in 15s to 19.7 MB.
+  - Rounds are derived chronologically because the feed's `Number` field is
+    duplicated and out of order (it reports 6 for both Miami and Monaco).
+  - The archive answers **403**, not 404, for files that were never published.
+  - Validated against the Belgian GP live capture: 28 segments (exact), 952 lap
+    resets vs 910 live, and 2 visually-large backward jumps — matching live exactly.
+    The archive covers the full session, so its slightly higher counts are expected.
+  - Mini-sector counts, previously undocumented: **Monaco 22** (6+10+6),
+    **Spa 28** (8+12+8). They do not scale with track length.
 
 - Track map dot positioning: segment-reset lap derivation, array-format
   segments, status 2064, offset-distance wrap.
