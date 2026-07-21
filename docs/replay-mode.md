@@ -55,9 +55,37 @@ Files are written to `apps/backend/data/` as `{date}_{meeting}_{session}.json`. 
 pnpm --filter backend dev:replay data/2026-06-07_monaco_race.json
 ```
 
-Playback is real time, so a full session runs its true length — including the pre-race build-up, which can approach an hour before lights out. Use `REPLAY_INTERVAL` to speed it up.
+Playback is real time, so a full session runs its true length — including the pre-race build-up, which can approach an hour before lights out. Use `REPLAY_INTERVAL` to speed it up, or trim the build-up away.
 
 > Converted files are gitignored. They are large and regenerate in seconds.
+
+### Trimming the build-up
+
+`pnpm trim` cuts the waiting so playback starts near the race:
+
+```bash
+pnpm --filter backend trim data/2026-03-08_australian_race.json
+```
+
+Writes `..._trimmed.json` alongside the input, or pass an explicit output path.
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--lead-in <seconds>` | `420` | How far ahead of the start to begin. The default keeps the formation lap |
+| `--segment-mode` | off | Drop `Position.z`, forcing the segment-based track map |
+
+The start is found from the `SessionStatus: "Started"` marker in
+`SessionData.StatusSeries`, which is exact. Inferring it from lap counters does
+not generalise: median race laps run about 79s at Monaco and 112s at Spa, so no
+fixed frame offset means the same thing at every circuit.
+
+Everything before the cut is folded into a single snapshot frame, so accumulated
+state survives. A plain slice would drop `DriverList`, `SessionInfo` and stint
+history, leaving the timing tower with empty rows.
+
+> `--segment-mode` is worth knowing about: with GPS data present the dashboard
+> switches to GPS positioning, which currently does not render driver dots.
+> Dropping the channel falls back to segment-based positioning, which works.
 
 ## Data quality in replay mode
 

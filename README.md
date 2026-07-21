@@ -137,8 +137,20 @@ Open `/live` as usual — replay feeds the same dashboard. A race is roughly 20 
 and converts in about 15 seconds.
 
 > Playback is real time, so a full session runs its true length and includes the
-> pre-race build-up. Set `REPLAY_INTERVAL` to speed it up: `50` is 2x, `25` is 4x.
-> The replay loops indefinitely.
+> pre-race build-up, which can approach an hour. Set `REPLAY_INTERVAL` to speed
+> it up: `50` is 2x, `25` is 4x. The replay loops indefinitely.
+
+To skip the waiting, trim the file so playback starts just before the race:
+
+```bash
+pnpm --filter backend trim data/2026-03-08_australian_race.json --segment-mode
+pnpm --filter backend dev:replay data/2026-03-08_australian_race_trimmed.json
+```
+
+The start is detected from the feed's own session-status marker, and the default
+lead-in keeps the formation lap. `--segment-mode` drops GPS data so the track map
+uses segment-based positioning, which currently renders driver dots more reliably.
+See [docs/replay-mode.md](docs/replay-mode.md) for details.
 
 Running a replay and the live feed at once means a port clash, since both bind
 `8090`. Either stop the live backend (`docker stop f1-backend`) or give the

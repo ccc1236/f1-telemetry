@@ -8,6 +8,7 @@
     "dev:replay": "ts-node -r tsconfig-paths/register src/replay.ts",
     "record": "node --max-old-space-size=8192 -r ts-node/register -r tsconfig-paths/register src/record.ts",
     "archive": "node --max-old-space-size=8192 -r ts-node/register -r tsconfig-paths/register src/archive.ts",
+    "trim": "node --max-old-space-size=8192 -r ts-node/register -r tsconfig-paths/register src/trim.ts",
     "test": "node --test \"src/**/*.test.ts\"",
     "lint": "tsc --noEmit",
     "build": "tsc && tsc-alias"
