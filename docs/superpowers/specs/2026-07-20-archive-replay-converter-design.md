@@ -28,8 +28,9 @@ lines are a session-relative timestamp immediately followed by JSON:
 
 Two facts confirmed by inspection:
 
-- Sprint sessions also have `Type: "Race"`. Selecting Grands Prix must key off the
-  session `Name`/path, not `Type`. 2026 has 10 races and 4 sprints.
+- Sprint sessions also have `Type: "Race"`. Distinguishing a Grand Prix from a sprint must
+  key off the session `Name`/path, not `Type`. 2026 has 10 Grands Prix and 4 sprints
+  (China, Miami, Canada, Britain).
 - `Sectors` is already an array in the archive, matching the SignalR Core live format,
   so existing array-handling code applies unchanged.
 
@@ -41,6 +42,9 @@ Two facts confirmed by inspection:
 | `Position.z.jsonStream` | 8.82 MB |
 | `CarData.z.jsonStream` | 7.23 MB |
 | All other timing/context channels | ~0.4 MB |
+
+A sprint uses the identical file set at roughly 9 MB total. The full 2026 season is
+therefore about 220 MB for the 10 Grands Prix and ~37 MB for the 4 sprints.
 
 `Position.z` decompresses at **9.04x** (measured over 896 entries), and its native update
 rate is **~1 Hz** (median 1000 ms). Because 1 Hz is slower than a 100 ms frame,
@@ -58,6 +62,7 @@ storing it compressed keeps a race at ~22 MB (~220 MB for 10). The decision hold
 | Telemetry storage | Keep `.z` payloads compressed | 7x smaller and byte-faithful to what F1 published |
 | Structure | One-shot CLI writing a JSON file | Mirrors `record.ts`; watchable offline and repeatedly |
 | Selection | Name fragment, `--round N`, `--all`, `--list` | Matches existing `pnpm record [file]` ergonomics |
+| Sprints | Included, behind `--sprint` / `--sprints` | Identical format and only ~9 MB each; the flag keeps the default unambiguous |
 
 ## Architecture
 
@@ -82,8 +87,8 @@ pnpm dev:replay apps/backend/data/2026-06-07_monaco_race.json
 
 ## Conversion algorithm
 
-1. **Resolve** the session: fetch `{year}/Index.json`, filter to Grands Prix, match by
-   name fragment or round, yield the session `Path`.
+1. **Resolve** the session: fetch `{year}/Index.json`, filter to Grands Prix (plus sprints
+   when requested), match by name fragment or round, yield the session `Path`.
 2. **Fetch** each channel file under that path. `SessionInfo.json` is fetched as plain JSON.
 3. **Parse** each line with `^(\d{2}):(\d{2}):(\d{2})\.(\d{3})(.*)$` into `{ tMs, payload }`.
    Strip the BOM; tolerate `\r\n`.
@@ -155,16 +160,22 @@ existing decompressed recordings working unchanged.
 ## CLI
 
 ```
-pnpm archive --list             # list completed races for the season
+pnpm archive --list             # list completed sessions for the season
 pnpm archive monaco             # match by name fragment, case-insensitive
 pnpm archive --round 6          # match by round number
-pnpm archive --all              # every completed race, sequentially
+pnpm archive chinese --sprint   # that weekend's sprint instead of the Grand Prix
+pnpm archive --all              # all 10 Grands Prix, sequentially
+pnpm archive --all --sprints    # all 14 sessions (Grands Prix + sprints)
 pnpm archive monaco --out DIR   # override output directory
 ```
 
 Default output directory is `apps/backend/data/`. Filenames are
-`{date}_{meeting-slug}_race.json`. Sprints are excluded; only sessions named `Race` are
-selected.
+`{date}_{meeting-slug}_{session}.json`, where `{session}` is `race` or `sprint` — for
+example `2026-06-07_monaco_race.json` and `2026-03-14_chinese_sprint.json`.
+
+Selection defaults to the Grand Prix. On the four sprint weekends both sessions exist, so
+`--sprint` selects the sprint for a single-session match, and `--sprints` widens `--all`
+to include them. Making sprints opt-in keeps a bare name match unambiguous.
 
 ## Error handling
 
@@ -198,7 +209,6 @@ and executes TypeScript directly, so tests need no packages added.
 
 - Seek, pause, and scrub. `replay.ts` plays frames on a fixed tick and loops forever;
   changing that is a separate concern.
-- Practice and qualifying sessions. The fetcher is session-agnostic, but selection
-  targets races only.
-- Sprint sessions.
+- Practice and qualifying sessions. The fetcher is session-agnostic, but selection targets
+  Grands Prix and sprints only.
 - Trimming dead air such as pre-race waiting or red-flag stoppages.
