@@ -2,9 +2,16 @@
 
 An open-source real-time dashboard for Formula 1 live timing and telemetry data.
 
-> **F1 Telemetry is currently unavailable!**
+> **This is a self-hosting fork** of [matteocelani/f1-telemetry](https://github.com/matteocelani/f1-telemetry).
 >
-> Due to IP blocking measures introduced by Formula 1, the hosted version is currently down. You can selfhost the project by following the [Getting started](#getting-started) instructions below.
+> It tracks upstream and adds what is needed to run the dashboard yourself:
+>
+> - **Working live feed** — migrated to F1's SignalR Core endpoint. Upstream's connection no longer negotiates after F1 changed its handshake ([PR #25](https://github.com/matteocelani/f1-telemetry/pull/25))
+> - **Docker self-hosting** — `docker compose up` for backend and frontend
+> - **Watch past races** — `pnpm archive` converts any completed 2026 session into a replayable file
+> - **Track map fixes** — driver dots now track correctly through a full race ([PR #27](https://github.com/matteocelani/f1-telemetry/pull/27), [PR #30](https://github.com/matteocelani/f1-telemetry/pull/30))
+>
+> Fixes are contributed back upstream where they apply generally.
 
 ![F1 Telemetry Dashboard](apps/frontend/public/images/desktop_1.jpeg)
 
@@ -25,7 +32,7 @@ The goal is to give anyone a clean, fast, and accurate view into what is happeni
 - **Race Control** — live feed of official messages, flags, safety car deployments, and steward decisions
 - **Weather** — air and track temperature, wind, humidity, and rainfall in real time
 - **Qualifying Support** — Q1/Q2/Q3 knockout detection with elimination line and separator labels between eliminated groups
-- **Data Resilience** — handles F1's lossy feed gracefully: stuck `InPit` flags are cross-referenced with stint data, `Retired`/`Stopped` states are permanently latched, and segment status `2064` (not-yet-reached) is correctly excluded from position calculations
+- **Data Resilience** — handles F1's lossy feed gracefully: stuck `InPit` flags are cross-referenced with stint data, `Retired`/`Stopped` states are permanently latched, and lap boundaries are derived from segment resets rather than `NumberOfLaps`, which the feed increments several seconds early
 
 ## Broadcast Delay
 
@@ -54,30 +61,102 @@ The backend subscribes to all available F1 channels. Compressed channels (`CarDa
 
 ## Getting started
 
-```bash
-# Install dependencies
-pnpm install
+### Docker (recommended for self-hosting)
 
-# Start backend and frontend in parallel
+Requires Docker Desktop or Docker Engine with Compose.
+
+```bash
+git clone https://github.com/ccc1236/f1-telemetry.git
+cd f1-telemetry
+docker compose up --build -d
+```
+
+Open **http://localhost:3100**. The backend is on port **8090**, and
+`http://localhost:8090/health` reports whether it is connected to F1.
+
+```bash
+docker compose logs -f backend   # follow the F1 connection
+docker compose down              # stop everything
+```
+
+Rebuild after changing frontend code — `NEXT_PUBLIC_*` values are baked in at
+build time:
+
+```bash
+docker compose up --build -d frontend
+```
+
+### Local development
+
+```bash
+pnpm install
 pnpm dev
 ```
 
-Backend runs on `ws://localhost:8080` (WebSocket) and `http://localhost:8081/health` (HTTP health check).
-Frontend runs on `http://localhost:3000`.
+Backend serves both the WebSocket relay and `/health` on a single port,
+**8090** by default. Frontend runs on `http://localhost:3000`.
 
-Environment variables are documented in `.env.example` at the project root.
+Environment variables are documented in `.env.example`. All are optional and
+have working defaults:
 
-### Replay mode (no live session needed)
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PORT` | `8090` | Backend WebSocket + health port |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8090` | Where the frontend polls health |
+| `NEXT_PUBLIC_WS_URL` | `ws://localhost:8090/ws` | Where the frontend streams data |
+| `F1_BEARER_TOKEN` | unset | Optional. Sent as an `Authorization` header during SignalR negotiation. The feed currently connects without it; set it only if negotiation starts failing |
+
+> **No live session?** F1 only streams during race weekends. Outside a session
+> the dashboard connects but stays empty — use a replay below.
+
+### Watch a completed race
+
+Any finished 2026 session can be downloaded from F1's public archive and replayed
+through the same dashboard:
+
+```bash
+pnpm --filter backend archive --list       # what is available
+pnpm --filter backend archive monaco       # download and convert one race
+pnpm --filter backend archive --round 10   # or select by round
+pnpm --filter backend archive --all        # every Grand Prix (~220 MB)
+```
+
+Sprints are opt-in with `--sprint` for a single weekend, or `--sprints`
+alongside `--all`.
+
+Files land in `apps/backend/data/`. Play one back:
+
+```bash
+pnpm --filter backend dev:replay data/2026-06-07_monaco_race.json
+```
+
+> The path is relative to `apps/backend`, because `--filter` runs the script
+> from that package directory.
+
+Open `/live` as usual — replay feeds the same dashboard. A race is roughly 20 MB
+and converts in about 15 seconds.
+
+> Playback is real time, so a full session runs its true length and includes the
+> pre-race build-up. Set `REPLAY_INTERVAL` to speed it up: `50` is 2x, `25` is 4x.
+> The replay loops indefinitely.
+
+Running a replay and the live feed at once means a port clash, since both bind
+`8090`. Either stop the live backend (`docker stop f1-backend`) or give the
+replay its own port with `PORT=8091` and point the frontend at it.
+
+### Replay a bundled recording
 
 ```bash
 pnpm dev:replay
 ```
 
-This replays a pre-recorded session through the WebSocket server so you can develop and test the dashboard outside of race weekends. The replay server loops the recording indefinitely.
+Plays a pre-recorded session for development outside race weekends.
 
-> **Note**: Replay recordings may have incomplete data depending on when the recording started. Some micro-sectors, position updates, or pit events might be missing. During a live session, the data feed is significantly more complete and the dashboard behaves more accurately.
+> **Note**: Recordings may have incomplete data depending on when recording
+> started — some micro-sectors, position updates, or pit events can be missing.
+> A live session is significantly more complete.
 
-See [docs/replay-mode.md](docs/replay-mode.md) for details on recording your own sessions and configuration options.
+See [docs/replay-mode.md](docs/replay-mode.md) for recording your own sessions.
 
 ## Documentation
 
