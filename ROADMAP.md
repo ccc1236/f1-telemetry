@@ -4,10 +4,28 @@ Working roadmap for this self-hosted fork. Not upstream planning.
 
 ## Planned
 
-### Trim dead air in converted sessions (optional)
+### Trim the pre-race build-up (`--from-race-start`)
 Real-time pacing is faithful but includes everything the feed carried. Converted
-Monaco is 124,858 frames — **208 minutes**, of which 37% are empty padding, mostly
-pre-session waiting. A `--trim-gaps` flag could collapse long idle stretches.
+Monaco is 124,858 frames — **208 minutes** — and racing does not begin until frame
+34,024, **56.7 minutes in**. Nearly an hour of build-up before lights out.
+
+Add a `--from-race-start` flag to `pnpm archive` that slices the timeline shortly
+before the race begins:
+
+- Detect the start via `LapCount.CurrentLap >= 2` (first completed racing lap).
+- Slice with a configurable lead-in, default ~120s, to catch the grid and start.
+- **Fold every skipped frame into a single snapshot frame.** A naive slice discards
+  accumulated state (`DriverList`, `SessionInfo`, stints) and the dashboard renders
+  empty rows.
+- **Reuse `@utils/deepMerge`.** A hand-rolled merge that combines arrays
+  element-wise fuses unrelated entries (`Messages`, `Series`, `Stints`, `Segments`)
+  into corrupted hybrids and crashes the frontend with a client-side exception.
+  The project's version replaces arrays wholesale and handles F1's sparse
+  numeric-key patches.
+
+A working prototype lives in the session scratchpad (`trim-replay.mjs`); Monaco
+trims from 124,858 to 92,035 frames (208 → 153 min) and boots correctly.
+
 Workaround today: `REPLAY_INTERVAL=25 pnpm dev:replay <file>` for 4x speed.
 
 ### Smooth the start/finish position gap (cosmetic, low priority)
