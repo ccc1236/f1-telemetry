@@ -51,3 +51,55 @@ export function parseStream(text: string): ParseResult {
 
   return { entries, skipped };
 }
+
+export interface ChannelStream {
+  channel: string;
+  entries: StreamEntry[];
+}
+
+export interface ReplayFrame {
+  snapshot?: boolean;
+  updates: Record<string, unknown>;
+}
+
+// Must match the REPLAY_INTERVAL default in replay.ts so playback runs in real time.
+export const FRAME_MS = 100;
+
+// Continuous telemetry may be overwritten within a frame. Every other channel
+// carries discrete state where merging or dropping corrupts the timeline.
+const LAST_WINS_CHANNELS = new Set(['Position.z', 'CarData.z']);
+
+export function buildFrames(
+  streams: ChannelStream[],
+  sessionInfo: unknown,
+  frameMs: number = FRAME_MS
+): ReplayFrame[] {
+  const timeline: ReplayFrame[] = [];
+
+  const frameAt = (index: number): ReplayFrame => {
+    while (timeline.length <= index) timeline.push({ updates: {} });
+    return timeline[index];
+  };
+
+  for (const { channel, entries } of streams) {
+    const isLastWins = LAST_WINS_CHANNELS.has(channel);
+
+    for (const entry of entries) {
+      let index = Math.floor(entry.tMs / frameMs);
+
+      // Discrete state is never merged; find the next frame free for this channel.
+      if (!isLastWins) {
+        while (channel in frameAt(index).updates) index++;
+      }
+
+      frameAt(index).updates[channel] = entry.payload;
+    }
+  }
+
+  const snapshot: ReplayFrame = {
+    snapshot: true,
+    updates: sessionInfo === undefined ? {} : { SessionInfo: sessionInfo },
+  };
+
+  return [snapshot, ...timeline];
+}
