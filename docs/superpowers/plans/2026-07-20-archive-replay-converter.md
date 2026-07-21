@@ -253,7 +253,7 @@ Test files must be excluded from `tsc` (they import with `.ts` extensions, which
 - Modify: `apps/backend/tsconfig.json`
 - Modify: `apps/backend/package.json`
 
-- [ ] **Step 1: Exclude tests from the TypeScript build**
+- [ ] **Step 1: Exclude tests from the TypeScript build and pin Node types**
 
 `apps/backend/tsconfig.json` currently ends with:
 
@@ -269,6 +269,15 @@ Change to:
   "exclude": ["src/**/*.test.ts"]
 }
 ```
+
+Also add `"types": ["node"]` to `compilerOptions`, alongside `"composite": true`.
+
+Without it, `tsc --noEmit` passes (it compiles the whole `include` glob, where
+some file transitively pulls in `@types/node`) but **`ts-node` fails on any new
+file that does not itself import something referencing Node types**, with
+`TS2591: Cannot find name 'process'`. The pure converter modules import nothing
+at all, so `archive.ts` hits this immediately. Pinning the types makes `tsc` and
+`ts-node` agree.
 
 - [ ] **Step 2: Add the test script**
 

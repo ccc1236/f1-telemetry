@@ -9,6 +9,7 @@
     "forceConsistentCasingInFileNames": true,
     "outDir": "./dist",
     "composite": true,
+    "types": ["node"],
     "paths": {
       "@services/*": ["./src/services/*"],
       "@utils/*": ["./src/utils/*"]
