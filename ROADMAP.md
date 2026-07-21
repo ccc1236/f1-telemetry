@@ -43,7 +43,14 @@ Add a `--from-race-start` flag to `pnpm archive` that slices the timeline shortl
 before the race begins:
 
 - Detect the start via `LapCount.CurrentLap >= 2` (first completed racing lap).
-- Slice with a configurable lead-in, default ~120s, to catch the grid and start.
+- Slice with a configurable lead-in (`--lead-in`), but **default generously enough
+  to include the formation lap**. A 120s lead-in only reaches back to roughly
+  lights-out, because a racing lap is already 75-95s; the formation lap runs
+  several minutes earlier and gets cut. It is worth keeping — cars leaving the
+  grid and weaving to warm tyres is one of the better things to watch.
+  Better still, detect it directly rather than guessing a window: `SessionData.StatusSeries`
+  carries session status transitions, which should mark the start without
+  depending on lap arithmetic.
 - **Fold every skipped frame into a single snapshot frame.** A naive slice discards
   accumulated state (`DriverList`, `SessionInfo`, stints) and the dashboard renders
   empty rows.
