@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { decompressPayload } from '@services/payload-parser';
 import { SocketServer } from '@services/socket-server';
 import { Logger } from '@utils/logger';
 
@@ -23,6 +24,39 @@ function loadReplayData(): ReplayFrame[] {
   return frames;
 }
 
+// Recordings made before the .z naming fix stored these channels without the
+// suffix, which the frontend never matches. Remap them on the way through.
+const LEGACY_CHANNEL_ALIASES: Record<string, string> = {
+  CarData: 'CarData.z',
+  Position: 'Position.z',
+};
+
+// Archive-sourced frames keep .z payloads compressed; recordings store them
+// already decompressed. Normalise both to decompressed objects.
+function normalizeUpdates(
+  updates: Record<string, unknown>
+): Record<string, unknown> {
+  const normalized: Record<string, unknown> = {};
+
+  for (const [rawChannel, data] of Object.entries(updates)) {
+    const channel = LEGACY_CHANNEL_ALIASES[rawChannel] ?? rawChannel;
+
+    if (channel.endsWith('.z') && typeof data === 'string') {
+      const decompressed = decompressPayload(data);
+      if (decompressed === null) {
+        Logger.warn(`Decompression failed for ${channel} — entry dropped`);
+        continue;
+      }
+      normalized[channel] = decompressed;
+      continue;
+    }
+
+    normalized[channel] = data;
+  }
+
+  return normalized;
+}
+
 function startReplay(socketServer: SocketServer, frames: ReplayFrame[]): void {
   let index = 0;
 
@@ -30,11 +64,13 @@ function startReplay(socketServer: SocketServer, frames: ReplayFrame[]): void {
     const frame = frames[index];
 
     if (frame?.updates) {
+      const updates = normalizeUpdates(frame.updates);
+
       // Snapshot frames replace the entire server state atomically
       if (frame.snapshot) {
-        socketServer.replaceState(frame.updates);
+        socketServer.replaceState(updates);
       } else {
-        for (const [channel, data] of Object.entries(frame.updates)) {
+        for (const [channel, data] of Object.entries(updates)) {
           socketServer.broadcast(channel, data);
         }
       }
