@@ -902,7 +902,10 @@ import { Logger } from '@utils/logger';
 
 const ARCHIVE_BASE_URL = 'https://livetiming.formula1.com/static';
 const ARCHIVE_HEADERS = { 'User-Agent': 'BestHTTP' } as const;
-const HTTP_NOT_FOUND = 404;
+
+// The archive answers 403 rather than 404 for keys that do not exist, so both
+// statuses mean "this file was never published for this session".
+const ABSENT_STATUSES: ReadonlySet<number> = new Set([403, 404]);
 
 // Channel files to pull for a session, mapped to the channel names the frontend
 // matches on. The .z suffix is retained: CHANNELS.POSITION is 'Position.z'.
@@ -934,7 +937,7 @@ async function fetchText(url: string): Promise<string | null> {
     throw new Error(`Network failure fetching ${url}`, { cause: error });
   }
 
-  if (response.status === HTTP_NOT_FOUND) return null;
+  if (ABSENT_STATUSES.has(response.status)) return null;
 
   if (!response.ok) {
     throw new Error(`Archive request failed for ${url} — HTTP ${response.status}`);
