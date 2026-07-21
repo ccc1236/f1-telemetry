@@ -4,6 +4,36 @@ Working roadmap for this self-hosted fork. Not upstream planning.
 
 ## Planned
 
+### Switch live/replay from the calendar page
+Make the calendar the control surface: clicking a completed race launches replay
+for that session, clicking the next scheduled race returns to live.
+
+**Blocker — live vs replay is currently a process-level choice.** `index.ts` and
+`replay.ts` are separate entry points that both bind port 8090, which is why
+switching today means `docker stop f1-backend`. Three shapes worth weighing:
+
+- **Control channel.** Backend accepts a "load session" command over WS/HTTP and
+  swaps source in place. Cleanest UX, one process, but the backend gains mode
+  state and must manage the F1 connection lifecycle.
+- **Two processes behind a proxy.** No mode state in either, but more moving
+  parts and more memory.
+- **Frontend-side switching.** Replay on a second port, frontend re-points its
+  socket. Smallest backend change, but `NEXT_PUBLIC_WS_URL` is baked in at build
+  time and would need to become dynamic.
+
+**Data constraints, both learned the hard way:**
+
+- **`calendar.json` is a stale pre-season snapshot.** It still lists the Bahrain
+  and Saudi Arabian rounds, which were cancelled, so it advertises races that can
+  never have replay data. The archive index is the source of truth for what is
+  replayable; the UI must cross-reference it.
+- **Never match on round number.** Those cancellations mean the two sources
+  disagree — Monaco is round 8 in `calendar.json` but round 6 by archive order.
+  Match on meeting name or date.
+
+Prerequisite: replay loops forever with no seek or pause, which is acceptable for
+a CLI demo but poor as a first-class UI mode.
+
 ### Trim the pre-race build-up (`--from-race-start`)
 Real-time pacing is faithful but includes everything the feed carried. Converted
 Monaco is 124,858 frames — **208 minutes** — and racing does not begin until frame
