@@ -253,7 +253,7 @@ Test files must be excluded from `tsc` (they import with `.ts` extensions, which
 - Modify: `apps/backend/tsconfig.json`
 - Modify: `apps/backend/package.json`
 
-- [ ] **Step 1: Exclude tests from the TypeScript build**
+- [ ] **Step 1: Exclude tests from the TypeScript build and pin Node types**
 
 `apps/backend/tsconfig.json` currently ends with:
 
@@ -269,6 +269,15 @@ Change to:
   "exclude": ["src/**/*.test.ts"]
 }
 ```
+
+Also add `"types": ["node"]` to `compilerOptions`, alongside `"composite": true`.
+
+Without it, `tsc --noEmit` passes (it compiles the whole `include` glob, where
+some file transitively pulls in `@types/node`) but **`ts-node` fails on any new
+file that does not itself import something referencing Node types**, with
+`TS2591: Cannot find name 'process'`. The pure converter modules import nothing
+at all, so `archive.ts` hits this immediately. Pinning the types makes `tsc` and
+`ts-node` agree.
 
 - [ ] **Step 2: Add the test script**
 
@@ -902,7 +911,10 @@ import { Logger } from '@utils/logger';
 
 const ARCHIVE_BASE_URL = 'https://livetiming.formula1.com/static';
 const ARCHIVE_HEADERS = { 'User-Agent': 'BestHTTP' } as const;
-const HTTP_NOT_FOUND = 404;
+
+// The archive answers 403 rather than 404 for keys that do not exist, so both
+// statuses mean "this file was never published for this session".
+const ABSENT_STATUSES: ReadonlySet<number> = new Set([403, 404]);
 
 // Channel files to pull for a session, mapped to the channel names the frontend
 // matches on. The .z suffix is retained: CHANNELS.POSITION is 'Position.z'.
@@ -934,7 +946,7 @@ async function fetchText(url: string): Promise<string | null> {
     throw new Error(`Network failure fetching ${url}`, { cause: error });
   }
 
-  if (response.status === HTTP_NOT_FOUND) return null;
+  if (ABSENT_STATUSES.has(response.status)) return null;
 
   if (!response.ok) {
     throw new Error(`Archive request failed for ${url} — HTTP ${response.status}`);
