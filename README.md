@@ -143,14 +143,30 @@ and converts in about 15 seconds.
 To skip the waiting, trim the file so playback starts just before the race:
 
 ```bash
-pnpm --filter backend trim data/2026-03-08_australian_race.json --segment-mode
+pnpm --filter backend trim data/2026-03-08_australian_race.json --to-finish --segment-mode
 pnpm --filter backend dev:replay data/2026-03-08_australian_race_trimmed.json
 ```
 
 The start is detected from the feed's own session-status marker, and the default
-lead-in keeps the formation lap. `--segment-mode` drops GPS data so the track map
-uses segment-based positioning, which currently renders driver dots more reliably.
-See [docs/replay-mode.md](docs/replay-mode.md) for details.
+lead-in keeps the formation lap. `--to-finish` also cuts the post-race tail a
+couple of laps past the chequered flag — worth doing, since some sessions carry
+15+ minutes of parc fermé and dead air after the finish. `--segment-mode` drops
+GPS data so the track map uses segment-based positioning, which currently renders
+driver dots more reliably. See [docs/replay-mode.md](docs/replay-mode.md) for details.
+
+Putting it together, the recommended way to watch a newly finished race with no
+dead air at either end — download, trim both ends, replay:
+
+```bash
+pnpm --filter backend archive dutch                                              # 1. prints the exact file it writes
+pnpm --filter backend trim data/2026-08-30_dutch_race.json --to-finish --segment-mode   # 2. formation lap to flag
+docker stop f1-backend                                                           # 3. free port 8090 if live is running
+pnpm --filter backend dev:replay data/2026-08-30_dutch_race_trimmed.json
+```
+
+The date prefix is not known ahead of time — step 1 prints the exact filename it
+writes, which you pass to step 2. Add `--sprint` to step 1 for a sprint weekend.
+Then open `/replay`.
 
 Running a replay and the live feed at once means a port clash, since both bind
 `8090`. Either stop the live backend (`docker stop f1-backend`) or give the

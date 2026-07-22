@@ -10,6 +10,8 @@
  *   pnpm trim data/2026-03-29_japanese_race.json
  *   pnpm trim data/in.json data/out.json
  *   pnpm trim data/in.json --lead-in 300
+ *   pnpm trim data/in.json --to-finish
+ *   pnpm trim data/in.json --to-finish --cooldown-laps 3
  *   pnpm trim data/in.json --segment-mode
  */
 
@@ -28,6 +30,16 @@ const BYTES_PER_MB = 1024 * 1024;
 // survives: it runs several minutes before lights out.
 const DEFAULT_LEAD_IN_S = 420;
 
+// Cooldown after the chequered flag, in lap-equivalents. Two laps covers the
+// last car crossing the line and its in-lap back to parc fermé.
+const DEFAULT_COOLDOWN_LAPS = 2;
+
+// Fallback cooldown when total laps cannot be read, so --to-finish still cuts.
+const DEFAULT_COOLDOWN_FALLBACK_S = 240;
+
+// Channel carrying the current lap; its value at the flag is the lap total.
+const LAP_COUNT_CHANNEL = 'LapCount';
+
 // Channel carrying GPS coordinates. The dashboard switches to GPS positioning
 // when it sees these, so dropping them forces the segment-based track map.
 const POSITION_CHANNEL = 'Position.z';
@@ -41,12 +53,16 @@ interface TrimOptions {
   inPath: string;
   outPath: string;
   leadInS: number;
+  toFinish: boolean;
+  cooldownLaps: number;
   segmentMode: boolean;
 }
 
 function parseArgs(argv: string[]): TrimOptions {
   const positional: string[] = [];
   let leadInS = DEFAULT_LEAD_IN_S;
+  let toFinish = false;
+  let cooldownLaps = DEFAULT_COOLDOWN_LAPS;
   let segmentMode = false;
 
   for (let i = 0; i < argv.length; i++) {
@@ -58,6 +74,14 @@ function parseArgs(argv: string[]): TrimOptions {
         throw new Error('--lead-in requires a non-negative number of seconds');
       }
       leadInS = value;
+    } else if (arg === '--to-finish') {
+      toFinish = true;
+    } else if (arg === '--cooldown-laps') {
+      const value = Number(argv[++i]);
+      if (!Number.isFinite(value) || value < 0) {
+        throw new Error('--cooldown-laps requires a non-negative number');
+      }
+      cooldownLaps = value;
     } else if (arg === '--segment-mode') {
       segmentMode = true;
     } else if (arg.startsWith('--')) {
@@ -69,7 +93,9 @@ function parseArgs(argv: string[]): TrimOptions {
 
   const [inPath, outPath] = positional;
   if (!inPath) {
-    throw new Error('Usage: pnpm trim <input.json> [output.json] [--lead-in S] [--segment-mode]');
+    throw new Error(
+      'Usage: pnpm trim <input.json> [output.json] [--lead-in S] [--to-finish] [--cooldown-laps N] [--segment-mode]'
+    );
   }
 
   return {
@@ -79,14 +105,17 @@ function parseArgs(argv: string[]): TrimOptions {
       outPath ?? inPath.replace(/\.json$/, '_trimmed.json')
     ),
     leadInS,
+    toFinish,
+    cooldownLaps,
     segmentMode,
   };
 }
 
-// The feed announces lights out via SessionData.StatusSeries. That is exact,
-// unlike inferring it from lap counters — lap length varies by ~40% between
-// circuits, so no fixed frame offset means the same thing everywhere.
-function findSessionStart(frames: ReplayFrame[]): number {
+// Race phases are announced via SessionData.StatusSeries ("Started" at lights
+// out, "Finished" at the chequered flag). That is exact, unlike inferring them
+// from lap counters — lap length varies by ~40% between circuits, so no fixed
+// frame offset means the same thing everywhere.
+function findSessionMarker(frames: ReplayFrame[], status: string): number {
   for (let i = 0; i < frames.length; i++) {
     const sessionData = frames[i].updates?.['SessionData'] as
       | { StatusSeries?: unknown }
@@ -99,11 +128,24 @@ function findSessionStart(frames: ReplayFrame[]): number {
       : Object.values(series as Record<string, unknown>);
 
     for (const entry of entries) {
-      const status = (entry as { SessionStatus?: string } | null)?.SessionStatus;
-      if (status === 'Started') return i;
+      const value = (entry as { SessionStatus?: string } | null)?.SessionStatus;
+      if (value === status) return i;
     }
   }
   return -1;
+}
+
+// Total laps equals CurrentLap at the flag. The feed only sends LapCount when
+// it changes, so read the last delta at or before the given frame.
+function findLapCountAt(frames: ReplayFrame[], uptoFrame: number): number | null {
+  let laps: number | null = null;
+  for (let i = 0; i <= uptoFrame && i < frames.length; i++) {
+    const lapCount = frames[i].updates?.[LAP_COUNT_CHANNEL] as
+      | { CurrentLap?: number }
+      | undefined;
+    if (typeof lapCount?.CurrentLap === 'number') laps = lapCount.CurrentLap;
+  }
+  return laps;
 }
 
 function main(): void {
@@ -112,7 +154,7 @@ function main(): void {
   Logger.info(`Reading ${options.inPath}`);
   const frames = JSON.parse(readFileSync(options.inPath, 'utf-8')) as ReplayFrame[];
 
-  const startFrame = findSessionStart(frames);
+  const startFrame = findSessionMarker(frames, 'Started');
   if (startFrame < 0) {
     throw new Error(
       'No SessionStatus "Started" marker found — this may not be a race session'
@@ -122,13 +164,38 @@ function main(): void {
   const leadInFrames = Math.round((options.leadInS * MS_PER_SECOND) / FRAME_MS);
   const sliceAt = Math.max(0, startFrame - leadInFrames);
 
+  // Trim the post-race tail (in-laps, podium, parc fermé) when asked, keeping a
+  // cooldown of a few laps past the chequered flag so the last car still finishes.
+  let endFrame = frames.length;
+  if (options.toFinish) {
+    const finishFrame = findSessionMarker(frames, 'Finished');
+    if (finishFrame < 0) {
+      Logger.warn('No "Finished" marker found — keeping the tail intact');
+    } else {
+      const totalLaps = findLapCountAt(frames, finishFrame);
+      let cooldownFrames: number;
+      if (totalLaps && totalLaps > 0) {
+        const meanLapFrames = (finishFrame - startFrame) / totalLaps;
+        cooldownFrames = Math.round(meanLapFrames * options.cooldownLaps);
+      } else {
+        cooldownFrames = Math.round(
+          (DEFAULT_COOLDOWN_FALLBACK_S * MS_PER_SECOND) / FRAME_MS
+        );
+        Logger.warn(
+          `No lap count found — using a ${DEFAULT_COOLDOWN_FALLBACK_S}s cooldown`
+        );
+      }
+      endFrame = Math.min(frames.length, finishFrame + cooldownFrames);
+    }
+  }
+
   // Fold the skipped frames into one snapshot so state survives the cut.
   let state: Record<string, unknown> = {};
   for (let i = 0; i < sliceAt; i++) {
     state = deepMerge(state, frames[i].updates ?? {}) as Record<string, unknown>;
   }
 
-  const kept = frames.slice(sliceAt);
+  const kept = frames.slice(sliceAt, endFrame);
   const output: ReplayFrame[] = [{ snapshot: true, updates: state }, ...kept];
 
   if (options.segmentMode) {
@@ -154,6 +221,11 @@ function main(): void {
     `Session started at frame ${startFrame} (${toMinutes(startFrame)} min in)`
   );
   Logger.info(`Cut at frame ${sliceAt} with a ${options.leadInS}s lead-in`);
+  if (options.toFinish && endFrame < frames.length) {
+    Logger.info(
+      `Trimmed tail at frame ${endFrame} (${toMinutes(frames.length - endFrame)} min removed)`
+    );
+  }
   Logger.info(`Snapshot carries: ${Object.keys(state).sort().join(', ')}`);
   Logger.info(
     `Frames ${frames.length} -> ${output.length} (${toMinutes(output.length)} min at 1x)`

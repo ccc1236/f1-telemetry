@@ -72,12 +72,18 @@ Writes `..._trimmed.json` alongside the input, or pass an explicit output path.
 | Flag | Default | Description |
 | --- | --- | --- |
 | `--lead-in <seconds>` | `420` | How far ahead of the start to begin. The default keeps the formation lap |
+| `--to-finish` | off | Also cut the post-race tail (podium, parc fermé) a couple of laps past the flag |
+| `--cooldown-laps <n>` | `2` | With `--to-finish`, how many laps to keep after the flag. Two covers the last car's in-lap |
 | `--segment-mode` | off | Drop `Position.z`, forcing the segment-based track map |
 
 The start is found from the `SessionStatus: "Started"` marker in
-`SessionData.StatusSeries`, which is exact. Inferring it from lap counters does
-not generalise: median race laps run about 79s at Monaco and 112s at Spa, so no
-fixed frame offset means the same thing at every circuit.
+`SessionData.StatusSeries`, and the flag from `"Finished"` — both exact.
+Inferring them from lap counters does not generalise: median race laps run about
+79s at Monaco and 112s at Spa, so no fixed frame offset means the same thing at
+every circuit. The cooldown is likewise lap-relative: the mean lap time comes
+from the race duration divided by the final `LapCount`, so `--cooldown-laps 2`
+means the same amount of racing everywhere. The tail is only trimmed when
+`--to-finish` is passed, since the archive already ends near the session close.
 
 Everything before the cut is folded into a single snapshot frame, so accumulated
 state survives. A plain slice would drop `DriverList`, `SessionInfo` and stint
