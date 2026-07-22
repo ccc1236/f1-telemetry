@@ -172,6 +172,16 @@ Running a replay and the live feed at once means a port clash, since both bind
 `8090`. Either stop the live backend (`docker stop f1-backend`) or give the
 replay its own port with `PORT=8091` and point the frontend at it.
 
+> **On Windows PowerShell**, the `pnpm`, `trim`, and `docker` commands run as
+> shown. Only the inline environment-variable syntax differs: `VAR=value pnpm ...`
+> is Bash-only. In PowerShell set the variable first, on the same line, with a
+> semicolon:
+>
+> ```powershell
+> $env:REPLAY_INTERVAL=50; pnpm --filter backend dev:replay data/2026-08-30_dutch_race_trimmed.json
+> $env:PORT=8091; pnpm --filter backend dev:replay data/2026-08-30_dutch_race_trimmed.json
+> ```
+
 ### Replay a bundled recording
 
 ```bash
