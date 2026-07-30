@@ -34,40 +34,6 @@ switching today means `docker stop f1-backend`. Three shapes worth weighing:
 Prerequisite: replay loops forever with no seek or pause, which is acceptable for
 a CLI demo but poor as a first-class UI mode.
 
-### Trim the pre-race build-up (`--from-race-start`)
-Real-time pacing is faithful but includes everything the feed carried. Converted
-Monaco is 124,858 frames — **208 minutes** — and racing does not begin until frame
-34,024, **56.7 minutes in**. Nearly an hour of build-up before lights out.
-
-Add a `--from-race-start` flag to `pnpm archive` that slices the timeline shortly
-before the race begins:
-
-- Detect the start via `LapCount.CurrentLap >= 2` (first completed racing lap).
-- **Do not slice on a fixed seconds lead-in.** Lap length varies far too much for
-  a constant to mean the same thing everywhere. Measured medians from converted
-  2026 races: Monaco 79.1s, Suzuka 95.8s, Spa 112.1s — Spa is ~42% longer than
-  Monaco, and Safety Car laps stretch further still. A 120s lead-in covers about
-  1.5 laps at Monaco but barely one at Spa, so it removes a different amount of
-  the race at every circuit.
-- **Detect the start from the feed instead.** `SessionData.StatusSeries` carries
-  session status transitions, which marks the start without lap arithmetic.
-- **Keep the formation lap.** It runs several minutes before lights-out, so any
-  lead-in tuned to the racing start will cut it. Cars leaving the grid and weaving
-  to warm tyres is one of the better parts to watch.
-- **Fold every skipped frame into a single snapshot frame.** A naive slice discards
-  accumulated state (`DriverList`, `SessionInfo`, stints) and the dashboard renders
-  empty rows.
-- **Reuse `@utils/deepMerge`.** A hand-rolled merge that combines arrays
-  element-wise fuses unrelated entries (`Messages`, `Series`, `Stints`, `Segments`)
-  into corrupted hybrids and crashes the frontend with a client-side exception.
-  The project's version replaces arrays wholesale and handles F1's sparse
-  numeric-key patches.
-
-A working prototype lives in the session scratchpad (`trim-replay.mjs`); Monaco
-trims from 124,858 to 92,035 frames (208 → 153 min) and boots correctly.
-
-Workaround today: `REPLAY_INTERVAL=25 pnpm dev:replay <file>` for 4x speed.
-
 ### Smooth the start/finish position gap (cosmetic, low priority)
 `NumberOfLaps` increments ~4s before the per-segment reset, so a car's
 position is unreported between crossing the line and the reset. The dot
@@ -82,6 +48,20 @@ smoothed by interpolating through the window.
 
 ## Gotchas
 
+### Stale circuit outline after a session rollover on a long-open tab
+Seen live at the Hungarian GP: Q1 drew the **Spa** outline (previous round) while
+dots tracked fine. A hard refresh cleared it. The track map picks its outline
+purely from `sessionInfo.Meeting.Name` (`useTrackMap.ts` `findCircuit`), and the
+client only ever resets stores on a backend `snapshot: true` frame. At a session
+change the backend `clearCache()`s but does **not** push a reset to already-open
+clients (`socket-server.ts`) — it relies on the forced F1 reconnect's later
+snapshot, leaving a stale window. `setSessionInfo` compounds it by shallow-merging,
+so a delta without `Meeting` keeps the old circuit indefinitely.
+**Workaround: hard-refresh the page.** Fix when it's worth it: self-heal
+`setSessionInfo` on a `SessionInfo.Path` change (replace + `resetAllStores`) so the
+client corrects without a reload; optionally broadcast a reset on the backend
+session change too.
+
 ### `record.ts` recordings distort segment data
 Recordings are batched at 100ms with a deep-merge, which mashes bursts of
 segment updates into states that never occur on the live feed. Validating
@@ -92,6 +72,23 @@ same logic against the live feed produced 6 jumps in 910 lap boundaries.
 Recordings remain fine for UI/replay work.
 
 ## Shipped
+
+- **Trim the pre-race build-up and post-race tail.** `pnpm trim <file>` slices the
+  hour of pre-race feed so playback starts near the formation lap; `--to-finish`
+  also drops the podium/parc-fermé tail. Prototype `trim-replay.mjs` is now
+  `apps/backend/src/trim.ts`.
+  - Start is detected from `SessionData.StatusSeries` (`"Started"`), the flag from
+    `"Finished"` — exact, because lap length varies ~40% across circuits (Monaco
+    79s, Spa 112s) so no fixed seconds lead-in means the same thing everywhere.
+  - `--cooldown-laps` (default 2) keeps a lap-relative buffer past the flag; mean
+    lap time is derived from race duration over the final `LapCount`.
+  - `--lead-in` (default 420s) overrides the formation-lap cushion; `--segment-mode`
+    drops `Position.z` to force segment-based dots, which render more reliably than
+    GPS mode today.
+  - Skipped frames fold into one snapshot via `@utils/deepMerge`, preserving
+    `DriverList`/`SessionInfo`/stints; a hand-rolled element-wise merge corrupted
+    them and crashed the frontend.
+  - Applied across all 2026 races and sprints: post-race tails ran 1.7–18.1 min.
 
 - **Historical race replay from the F1 archive.** `pnpm archive <name|--round N|--all>`
   converts a completed session from `livetiming.formula1.com/static` into
