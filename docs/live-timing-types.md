@@ -147,6 +147,8 @@ Only changed fields are sent per message. The consumer must merge each update in
 | `2051` | Completed (sector boundary + personal best) |
 | `2064` | Not yet reached / yellow flag |
 
+Segment collections arrive as a keyed object (`{"0": …}`) on snapshots and as an array on some deltas, mirroring `Stats`. `Segments` is typed `Record<string, SegmentData> | SegmentData[]` to match.
+
 Speed point keys: `FL` = Finish Line, `ST` = Speed Trap, `I1` / `I2` = Intermediate sectors.
 
 ---

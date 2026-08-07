@@ -107,8 +107,9 @@ export interface SectorTime {
   OverallFastest?: boolean;
   Stopped?: boolean;
   PreviousValue?: string;
-  /** Micro-sector segments from TimingDataF1. Keyed by segment index "0", "1", etc. */
-  Segments?: Record<string, SegmentData>;
+  /** Micro-sector segments from TimingDataF1. Snapshots send a keyed object
+   * ("0", "1", …); some deltas send an array, like Stats. */
+  Segments?: Record<string, SegmentData> | SegmentData[];
 }
 
 export interface SpeedEntry {
