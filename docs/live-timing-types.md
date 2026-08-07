@@ -49,19 +49,19 @@ The backend subscribes to all available channels. Not all channels broadcast dat
 
 ### Extended channels (availability varies)
 
-| Channel               | Content                              |
-| --------------------- | ------------------------------------ |
-| `TeamRadio`           | Team radio message notifications     |
-| `PitLaneTimeCollection` | Pit lane transit times             |
-| `PitStopSeries`       | Pit stop durations per driver        |
-| `LapSeries`           | Lap-by-lap positions per driver      |
-| `TopThree`            | Podium positions with diff data      |
-| `CurrentTyres`        | Current tyre compound per driver     |
-| `TyreStintSeries`     | Stint history with compounds         |
+| Channel                  | Content                             |
+| ------------------------ | ----------------------------------- |
+| `TeamRadio`              | Team radio message notifications    |
+| `PitLaneTimeCollection`  | Pit lane transit times              |
+| `PitStopSeries`          | Pit stop durations per driver       |
+| `LapSeries`              | Lap-by-lap positions per driver     |
+| `TopThree`               | Podium positions with diff data     |
+| `CurrentTyres`           | Current tyre compound per driver    |
+| `TyreStintSeries`        | Stint history with compounds        |
 | `ChampionshipPrediction` | Live championship point projections |
-| `DriverRaceInfo`      | Race-specific driver information     |
-| `OvertakeSeries`      | Overtake events                      |
-| `TlaRcm`              | Weather/track condition messages     |
+| `DriverRaceInfo`         | Race-specific driver information    |
+| `OvertakeSeries`         | Overtake events                     |
+| `TlaRcm`                 | Weather/track condition messages    |
 
 > **Note:** `CarData.z` and `Position.z` are not guaranteed to be available in every session. Some sessions (notably in 2026) have been observed to not broadcast GPS position data at all. The frontend handles this gracefully by falling back to micro-sector-based positioning.
 
@@ -139,13 +139,17 @@ Only changed fields are sent per message. The consumer must merge each update in
 
 `TimingDataF1` extends `TimingData` with micro-sector segment statuses. Segment status values:
 
-| Status | Meaning                  |
-| ------ | ------------------------ |
-| `0`    | Cleared/reset (lap boundary) |
-| `2048` | Completed (normal)       |
-| `2049` | Completed (overall best) |
-| `2051` | Completed (sector boundary + personal best) |
-| `2064` | Not yet reached / yellow flag |
+| Status | Meaning                                     |
+| ------ | ------------------------------------------- |
+| `0`    | Cleared/reset (lap boundary)                |
+| `2048` | Completed (no personal best)                |
+| `2049` | Completed (personal best)                   |
+| `2051` | Completed (overall fastest)                 |
+| `2064` | Completed (carry-over from previous timing) |
+
+All statuses above `0` mean the car has driven through the segment. `2064` appears on the segments either side of the start/finish line — it is carry-over timing, not a stopped car, so `SEGMENT_STATUS.STOPPED` in `live-timing.ts` is a misnomer.
+
+Segment collections arrive as an array on snapshots and as a keyed object (`{"0": …}`) on deltas, mirroring `Stats`. `Segments` is typed `Record<string, SegmentData> | SegmentData[]` to match.
 
 Speed point keys: `FL` = Finish Line, `ST` = Speed Trap, `I1` / `I2` = Intermediate sectors.
 

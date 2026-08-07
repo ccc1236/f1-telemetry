@@ -83,11 +83,13 @@ function buildSector(sector: SectorTime | undefined): UISector {
 
   const segments: SegmentColorClass[] = [];
   if (sector.Segments) {
-    const keys = Object.keys(sector.Segments).sort(
+    const segs = sector.Segments;
+    const keys = Object.keys(segs).sort(
       (a, b) => parseInt(a, 10) - parseInt(b, 10)
     );
     for (const key of keys) {
-      segments.push(resolveSegmentColor(sector.Segments[key].Status));
+      const seg = Array.isArray(segs) ? segs[Number(key)] : segs[key];
+      segments.push(resolveSegmentColor(seg.Status));
     }
   }
 

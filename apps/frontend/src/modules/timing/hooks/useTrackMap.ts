@@ -4,13 +4,16 @@
  * interpolation via a 60fps rAF loop that writes directly to SVG DOM refs.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { DriverTiming } from '@f1-telemetry/core';
+import { SEGMENT_STATUS, type DriverTiming } from '@f1-telemetry/core';
 import { MS_PER_DAY } from '@/constants/numbers';
 import calendarData from '@/data/calendar.json';
 import circuitsData from '@/data/circuits.json';
 import driversData from '@/data/drivers.json';
 import teamsData from '@/data/teams.json';
-import { MIN_PIT_CONFIRM_LAPS } from '@/modules/timing/constants';
+import {
+  MIN_PIT_CONFIRM_LAPS,
+  PERCENT_PER_LAP,
+} from '@/modules/timing/constants';
 import type {
   CircuitData,
   DriverDotMeta,
@@ -52,13 +55,13 @@ const MIN_DRIVERS_FOR_BOUNDS = 5;
 const WARMUP_FRAMES = 3;
 const CURVATURE_WEIGHT = 4;
 const SMOOTHING_WINDOW = 5;
-const PERCENT_PER_LAP = 100;
 const LERP_FACTOR = 0.15;
 const LERP_SNAP_THRESHOLD = 0.01;
 const DEFAULT_LAP_TIME_MS = 90_000;
 const MAX_PROJECTION_RATIO = 0.95;
-// F1 resets segments to 0 before incrementing lap count; ignore drops larger than this threshold.
-const LAP_BOUNDARY_SEG_DROP = 3;
+// A sharp drop in completed segments marks a lap reset; the threshold scales
+// with the circuit's segment count so it adapts to any track length.
+const LAP_RESET_DROP_FRACTION = 0.5;
 
 // Sector/segment key arrays: avoids Object.keys().sort() on every call.
 const SECTOR_KEYS = ['0', '1', '2'] as const;
@@ -76,9 +79,14 @@ const SEGMENT_KEYS = [
   '10',
 ] as const;
 
-// F1 segment completion statuses (2048=normal, 2049=purple, 2051=green+sector).
-// Status 2064 means "not yet reached" or "yellow flag" and must NOT count as completed.
-const COMPLETED_STATUSES = new Set([2048, 2049, 2051]);
+// countCompletedSegments stops at the first status not in this set, so an
+// omission pins the dot to the line. 2064 is carry-over timing, not a stop.
+const COMPLETED_STATUSES = new Set<number>([
+  SEGMENT_STATUS.YELLOW,
+  SEGMENT_STATUS.GREEN,
+  SEGMENT_STATUS.PURPLE,
+  SEGMENT_STATUS.STOPPED,
+]);
 
 // Module-level data — precomputed once at import time.
 const races = calendarData as unknown as RaceEntry[];
@@ -244,13 +252,18 @@ function computeSegmentBoundaries(
   return boundaries;
 }
 
+function segmentCount(segs: unknown): number {
+  if (Array.isArray(segs)) return segs.length;
+  if (segs && typeof segs === 'object') return Object.keys(segs).length;
+  return 0;
+}
+
 function countSegments(driver: DriverTiming): number {
   const sectors = driver.Sectors;
   if (!sectors) return 0;
   let n = 0;
   for (const sKey of SECTOR_KEYS) {
-    const segs = sectors[sKey]?.Segments;
-    if (segs) n += Object.keys(segs).length;
+    n += segmentCount(sectors[sKey]?.Segments);
   }
   return n;
 }
@@ -290,7 +303,7 @@ function indexToPercent(index: number, distances: number[]): number {
   return (distances[index] / total) * 100;
 }
 
-// Counts completed micro-sectors using pre-sorted key arrays (no Object.keys().sort()).
+// Counts completed micro-sectors. Handles both array and object segment formats.
 function countCompletedSegments(driver: DriverTiming): number {
   const sectors = driver.Sectors;
   if (!sectors) return 0;
@@ -299,8 +312,10 @@ function countCompletedSegments(driver: DriverTiming): number {
   for (const sKey of SECTOR_KEYS) {
     const segs = sectors[sKey]?.Segments;
     if (!segs) continue;
-    for (const segKey of SEGMENT_KEYS) {
-      const seg = segs[segKey];
+    const entries = Array.isArray(segs)
+      ? segs
+      : SEGMENT_KEYS.map((k) => segs[k]);
+    for (const seg of entries) {
       if (!seg) continue;
       if (COMPLETED_STATUSES.has(seg.Status ?? 0)) {
         completed++;
@@ -496,46 +511,42 @@ export function useTrackMap(): TrackMapData {
 
         const completed = countCompletedSegments(timing);
         const prev = trackStateRef.current[driverNo];
+        const totalSegs = boundaries.length - 1;
 
-        // Lap boundary guard: F1 resets segments to 0 BEFORE incrementing NumberOfLaps.
-        // If completed drops significantly on the same lap, this is a segment reset — hold the old anchor.
-        const segDrop = prev ? prev.completedSegments - completed : 0;
-        const isLapBoundaryReset =
+        // NumberOfLaps lags the per-segment reset at the line, so we derive the
+        // lap base from the segment drop to keep positions monotonic.
+        const isLapReset =
           prev &&
-          prev.lapCount === currentLap &&
-          segDrop > LAP_BOUNDARY_SEG_DROP;
-
-        if (isLapBoundaryReset) {
-          // Keep the previous state — don't move the dot backward
-          newDrivers[driverNo] = {
-            driverNo,
-            tla: meta.tla,
-            teamColor: meta.color,
-            inPit: false,
-          };
-          continue;
+          prev.completedSegments - completed >
+            totalSegs * LAP_RESET_DROP_FRACTION;
+        let lapBase: number;
+        if (!prev) {
+          lapBase = currentLap;
+        } else if (isLapReset) {
+          lapBase = prev.lapCount + 1;
+        } else {
+          lapBase = prev.lapCount;
         }
 
         const anchorBoundary =
           completed < boundaries.length
             ? boundaries[completed]
             : boundaries[boundaries.length - 1];
-        const anchorPercent = currentLap * PERCENT_PER_LAP + anchorBoundary;
+        const anchorPercent = lapBase * PERCENT_PER_LAP + anchorBoundary;
 
         const nextIdx = Math.min(completed + 1, boundaries.length - 1);
         const nextBoundaryPercent =
-          currentLap * PERCENT_PER_LAP + boundaries[nextIdx];
+          lapBase * PERCENT_PER_LAP + boundaries[nextIdx];
 
         const lapTimeMs =
           parseLapTimeMs(timing.LastLapTime?.Value) ?? DEFAULT_LAP_TIME_MS;
-        const totalSegs = boundaries.length - 1;
         const estimatedDwellMs =
           totalSegs > 0 ? lapTimeMs / totalSegs : DEFAULT_LAP_TIME_MS;
 
         const isNewAnchor =
           !prev ||
           prev.completedSegments !== completed ||
-          prev.lapCount !== currentLap;
+          prev.lapCount !== lapBase;
 
         trackStateRef.current[driverNo] = {
           anchorPercent,
@@ -543,7 +554,7 @@ export function useTrackMap(): TrackMapData {
           nextBoundaryPercent,
           estimatedDwellMs,
           visualPercent: prev?.visualPercent ?? anchorPercent,
-          lapCount: currentLap,
+          lapCount: lapBase,
           completedSegments: completed,
         };
 
@@ -555,8 +566,6 @@ export function useTrackMap(): TrackMapData {
         };
       }
     }
-
-    driversRef.current = newDrivers;
 
     for (const key of Object.keys(trackStateRef.current)) {
       if (!newDrivers[key]) delete trackStateRef.current[key];
@@ -580,6 +589,8 @@ export function useTrackMap(): TrackMapData {
     if (hasChanged) {
       driverRevRef.current++;
     }
+
+    driversRef.current = newDrivers;
 
     if (driverRevRef.current !== prevDriverRevRef.current) {
       prevDriverRevRef.current = driverRevRef.current;
