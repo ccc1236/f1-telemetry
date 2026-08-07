@@ -59,9 +59,8 @@ const LERP_FACTOR = 0.15;
 const LERP_SNAP_THRESHOLD = 0.01;
 const DEFAULT_LAP_TIME_MS = 90_000;
 const MAX_PROJECTION_RATIO = 0.95;
-// A sharp drop in completed segments landing near zero signals a segment reset (new lap).
-// Used to derive our own lap base independently of the out-of-sync NumberOfLaps counter.
-// The drop threshold scales with the track's segment count to adapt to any circuit length.
+// A sharp drop in completed segments marks a lap reset; the threshold scales
+// with the circuit's segment count so it adapts to any track length.
 const LAP_RESET_DROP_FRACTION = 0.5;
 
 // Sector/segment key arrays: avoids Object.keys().sort() on every call.
@@ -80,10 +79,8 @@ const SEGMENT_KEYS = [
   '10',
 ] as const;
 
-// Statuses that mark a micro-sector as driven through. countCompletedSegments
-// stops at the first status NOT in this set, so an omission here pins the dot
-// to the start/finish line. 2064 is a completed carry-over from previous
-// timing (SEGMENT_STATUS.STOPPED is a misnomer), not a stopped car.
+// countCompletedSegments stops at the first status not in this set, so an
+// omission pins the dot to the line. 2064 is carry-over timing, not a stop.
 const COMPLETED_STATUSES = new Set<number>([
   SEGMENT_STATUS.YELLOW,
   SEGMENT_STATUS.GREEN,
@@ -516,10 +513,8 @@ export function useTrackMap(): TrackMapData {
         const prev = trackStateRef.current[driverNo];
         const totalSegs = boundaries.length - 1;
 
-        // NumberOfLaps increments out of sync with the per-segment reset at the line,
-        // so we derive our own lap base from the reliable signal: a sharp drop in
-        // completed segments landing near zero marks a new lap. This keeps positions
-        // monotonic across start/finish and avoids clustering dots near the line.
+        // NumberOfLaps lags the per-segment reset at the line, so we derive the
+        // lap base from the segment drop to keep positions monotonic.
         const isLapReset =
           prev &&
           prev.completedSegments - completed >
