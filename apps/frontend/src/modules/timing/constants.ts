@@ -104,6 +104,9 @@ export const MIN_STINT_LABEL_WIDTH_PERCENT = 6;
 // Used to detect stuck InPit flags (if active stint has ≥ this many laps, driver is on track).
 export const MIN_PIT_CONFIRM_LAPS = 2;
 
+// Track map: one full lap spans this many percent along the circuit path.
+export const PERCENT_PER_LAP = 100;
+
 // Pace Radar metrics
 export const PACE_METRICS: readonly PaceMetricOption[] = [
   { key: 's1', label: 'S1', description: 'Sector 1 — Best Time' },
