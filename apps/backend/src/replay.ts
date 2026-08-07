@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { CHANNELS } from '@f1-telemetry/core';
 import { decompressPayload } from '@services/payload-parser';
 import { SocketServer } from '@services/socket-server';
 import { Logger } from '@utils/logger';
@@ -27,8 +28,8 @@ function loadReplayData(): ReplayFrame[] {
 // Recordings made before the .z naming fix stored these channels without the
 // suffix, which the frontend never matches. Remap them on the way through.
 const LEGACY_CHANNEL_ALIASES: Record<string, string> = {
-  CarData: 'CarData.z',
-  Position: 'Position.z',
+  CarData: CHANNELS.TELEMETRY,
+  Position: CHANNELS.POSITION,
 };
 
 // Archive-sourced frames keep .z payloads compressed; recordings store them
