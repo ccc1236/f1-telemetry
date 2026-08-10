@@ -6,12 +6,11 @@ An open-source real-time dashboard for Formula 1 live timing and telemetry data.
 >
 > It tracks upstream and adds what is needed to run the dashboard yourself:
 >
-> - **Working live feed** — migrated to F1's SignalR Core endpoint. Upstream's connection no longer negotiates after F1 changed its handshake ([PR #25](https://github.com/matteocelani/f1-telemetry/pull/25))
+> - **Working live feed** — migrated to F1's SignalR Core endpoint. Upstream's connection no longer negotiates after F1 changed its handshake ([PR #25](https://github.com/matteocelani/f1-telemetry/pull/25), pending)
 > - **Docker self-hosting** — `docker compose up` for backend and frontend
-> - **Watch past races** — `pnpm archive` converts any completed 2026 session into a replayable file
-> - **Track map fixes** — driver dots now track correctly through a full race ([PR #27](https://github.com/matteocelani/f1-telemetry/pull/27), [PR #30](https://github.com/matteocelani/f1-telemetry/pull/30))
+> - **Watch past races** — `pnpm archive` converts any completed 2026 session into a replayable file; `pnpm trim` cuts it down to the racing ([PR #32](https://github.com/matteocelani/f1-telemetry/pull/32), pending)
 >
-> Fixes are contributed back upstream where they apply generally.
+> Fixes that apply generally go upstream — the track-map and `.z`-suffix fixes are already merged there ([#27](https://github.com/matteocelani/f1-telemetry/pull/27), [#31](https://github.com/matteocelani/f1-telemetry/pull/31)).
 
 ![F1 Telemetry Dashboard](apps/frontend/public/images/desktop_1.jpeg)
 
