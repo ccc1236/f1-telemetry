@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { Info, MapPin } from 'lucide-react';
 import type { TrackStatusCode } from '@f1-telemetry/core';
+import { PERCENT_PER_LAP } from '@/modules/timing/constants';
 import { useLiveTiming } from '@/modules/timing/hooks/useLiveTiming';
 import { useTrackMap } from '@/modules/timing/hooks/useTrackMap';
 import { useUI } from '@/store/ui';
@@ -36,6 +37,12 @@ const TRACK_STATUS_COLORS: Partial<Record<TrackStatusCode, string>> = {
   '6': '#eab308',
   '7': '#22c55e',
 };
+
+// Positive modulo: wraps a lap-space percent into [0, PERCENT_PER_LAP) so an
+// over-100% projection maps back onto the open circuit path instead of off it.
+function wrapLapPercent(percent: number): number {
+  return ((percent % PERCENT_PER_LAP) + PERCENT_PER_LAP) % PERCENT_PER_LAP;
+}
 
 export function TrackMap({ className }: TrackMapProps) {
   const { drivers, circuit, isSegmentMode, startPercent, projectAll } =
@@ -74,7 +81,7 @@ export function TrackMap({ className }: TrackMapProps) {
       for (const [driverNo, el] of dotRefs.current) {
         const percent = projected[driverNo];
         if (Number.isFinite(percent)) {
-          el.style.offsetDistance = `${((percent % 100) + 100) % 100}%`;
+          el.style.offsetDistance = `${wrapLapPercent(percent)}%`;
         }
       }
       frameIdRef.current = requestAnimationFrame(animate);

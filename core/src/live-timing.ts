@@ -95,7 +95,8 @@ export const SEGMENT_STATUS = {
   STOPPED: 2064,
 } as const;
 
-export type SegmentStatus = (typeof SEGMENT_STATUS)[keyof typeof SEGMENT_STATUS];
+export type SegmentStatus =
+  (typeof SEGMENT_STATUS)[keyof typeof SEGMENT_STATUS];
 
 export interface SegmentData {
   Status: SegmentStatus;
@@ -107,8 +108,9 @@ export interface SectorTime {
   OverallFastest?: boolean;
   Stopped?: boolean;
   PreviousValue?: string;
-  /** Micro-sector segments from TimingDataF1. Keyed by segment index "0", "1", etc. */
-  Segments?: Record<string, SegmentData>;
+  /** Micro-sector segments from TimingDataF1. Snapshots send an array; deltas
+   * send a keyed object ("0", "1", …), the same as Stats. */
+  Segments?: Record<string, SegmentData> | SegmentData[];
 }
 
 export interface SpeedEntry {

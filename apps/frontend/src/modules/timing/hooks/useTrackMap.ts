@@ -4,13 +4,16 @@
  * interpolation via a 60fps rAF loop that writes directly to SVG DOM refs.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { DriverTiming } from '@f1-telemetry/core';
+import { SEGMENT_STATUS, type DriverTiming } from '@f1-telemetry/core';
 import { MS_PER_DAY } from '@/constants/numbers';
 import calendarData from '@/data/calendar.json';
 import circuitsData from '@/data/circuits.json';
 import driversData from '@/data/drivers.json';
 import teamsData from '@/data/teams.json';
-import { MIN_PIT_CONFIRM_LAPS } from '@/modules/timing/constants';
+import {
+  MIN_PIT_CONFIRM_LAPS,
+  PERCENT_PER_LAP,
+} from '@/modules/timing/constants';
 import type {
   CircuitData,
   DriverDotMeta,
@@ -52,16 +55,13 @@ const MIN_DRIVERS_FOR_BOUNDS = 5;
 const WARMUP_FRAMES = 3;
 const CURVATURE_WEIGHT = 4;
 const SMOOTHING_WINDOW = 5;
-const PERCENT_PER_LAP = 100;
 const LERP_FACTOR = 0.15;
 const LERP_SNAP_THRESHOLD = 0.01;
 const DEFAULT_LAP_TIME_MS = 90_000;
 const MAX_PROJECTION_RATIO = 0.95;
-// A sharp drop in completed segments landing near zero signals a segment reset (new lap).
-// Used to derive our own lap base independently of the out-of-sync NumberOfLaps counter.
-// The drop threshold scales with the track's segment count to adapt to any circuit length.
+// A sharp drop in completed segments marks a lap reset; the threshold scales
+// with the circuit's segment count so it adapts to any track length.
 const LAP_RESET_DROP_FRACTION = 0.5;
-const LAP_RESET_MAX_AFTER = 4;
 
 // Sector/segment key arrays: avoids Object.keys().sort() on every call.
 const SECTOR_KEYS = ['0', '1', '2'] as const;
@@ -79,8 +79,14 @@ const SEGMENT_KEYS = [
   '10',
 ] as const;
 
-// F1 segment completion statuses (2048=normal, 2049=purple, 2051=green+sector, 2064=previous timing).
-const COMPLETED_STATUSES = new Set([2048, 2049, 2051, 2064]);
+// countCompletedSegments stops at the first status not in this set, so an
+// omission pins the dot to the line. 2064 is carry-over timing, not a stop.
+const COMPLETED_STATUSES = new Set<number>([
+  SEGMENT_STATUS.YELLOW,
+  SEGMENT_STATUS.GREEN,
+  SEGMENT_STATUS.PURPLE,
+  SEGMENT_STATUS.STOPPED,
+]);
 
 // Module-level data — precomputed once at import time.
 const races = calendarData as unknown as RaceEntry[];
@@ -306,7 +312,9 @@ function countCompletedSegments(driver: DriverTiming): number {
   for (const sKey of SECTOR_KEYS) {
     const segs = sectors[sKey]?.Segments;
     if (!segs) continue;
-    const entries = Array.isArray(segs) ? segs : SEGMENT_KEYS.map((k) => segs[k]);
+    const entries = Array.isArray(segs)
+      ? segs
+      : SEGMENT_KEYS.map((k) => segs[k]);
     for (const seg of entries) {
       if (!seg) continue;
       if (COMPLETED_STATUSES.has(seg.Status ?? 0)) {
@@ -505,15 +513,12 @@ export function useTrackMap(): TrackMapData {
         const prev = trackStateRef.current[driverNo];
         const totalSegs = boundaries.length - 1;
 
-        // NumberOfLaps increments out of sync with the per-segment reset at the line,
-        // so we derive our own lap base from the reliable signal: a sharp drop in
-        // completed segments landing near zero marks a new lap. This keeps positions
-        // monotonic across start/finish and avoids clustering dots near the line.
+        // NumberOfLaps lags the per-segment reset at the line, so we derive the
+        // lap base from the segment drop to keep positions monotonic.
         const isLapReset =
           prev &&
           prev.completedSegments - completed >
-            totalSegs * LAP_RESET_DROP_FRACTION &&
-          completed <= LAP_RESET_MAX_AFTER;
+            totalSegs * LAP_RESET_DROP_FRACTION;
         let lapBase: number;
         if (!prev) {
           lapBase = currentLap;
