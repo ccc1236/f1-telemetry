@@ -137,10 +137,17 @@ function findCurrentRace(): RaceEntry | undefined {
   return RACE_DATE_RANGES.find(({ latest }) => latest > Date.now())?.race;
 }
 
-function findCircuit(meetingName: string | undefined): CircuitData | null {
-  let race: RaceEntry | undefined;
+function findCircuit(
+  circuitKey: number | undefined,
+  meetingName: string | undefined
+): CircuitData | null {
+  // The feed's circuit key survives venue swaps and naming drift that break name matching.
+  let race: RaceEntry | undefined =
+    circuitKey === undefined
+      ? undefined
+      : races.find((r) => r.circuitKey === circuitKey);
 
-  if (meetingName) {
+  if (!race && meetingName) {
     const nameLower = meetingName.toLowerCase();
     race = races.find((r) => r.name.toLowerCase().includes(nameLower));
   }
@@ -353,7 +360,11 @@ export function useTrackMap(): TrackMapData {
   const [drivers, setDrivers] = useState<DriverDotMeta[]>([]);
 
   const circuit = useMemo(
-    () => findCircuit(sessionInfo?.Meeting?.Name),
+    () =>
+      findCircuit(
+        sessionInfo?.Meeting?.Circuit?.Key,
+        sessionInfo?.Meeting?.Name
+      ),
     [sessionInfo]
   );
 
