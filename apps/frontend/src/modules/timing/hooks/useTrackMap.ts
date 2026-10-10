@@ -40,6 +40,14 @@ interface AffineTransform {
   scale: number;
 }
 
+interface GpsCalibration {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  cellDrivers: Map<string, Set<string>>;
+}
+
 interface DriverTrackState {
   anchorPercent: number;
   anchorTime: number;
@@ -52,7 +60,11 @@ interface DriverTrackState {
 
 // Constants
 const MIN_DRIVERS_FOR_BOUNDS = 5;
-const WARMUP_FRAMES = 3;
+// GPS units are decimetres, so cells are 50 m: wide enough for nearby cars to share one.
+const GPS_CELL_SIZE = 500;
+// A cell joins the calibration bbox only once several cars have driven through it,
+// so a single car's stuck or glitched fix off the circuit cannot stretch the scale.
+const MIN_DRIVERS_PER_CELL = 3;
 const CURVATURE_WEIGHT = 4;
 const SMOOTHING_WINDOW = 5;
 const LERP_FACTOR = 0.15;
@@ -334,6 +346,16 @@ function countCompletedSegments(driver: DriverTiming): number {
   return completed;
 }
 
+function createCalibration(): GpsCalibration {
+  return {
+    minX: Infinity,
+    maxX: -Infinity,
+    minY: Infinity,
+    maxY: -Infinity,
+    cellDrivers: new Map(),
+  };
+}
+
 // Hook
 
 export function useTrackMap(): TrackMapData {
@@ -343,13 +365,7 @@ export function useTrackMap(): TrackMapData {
   const sessionInfo = useSession((s) => s.sessionInfo);
 
   const transformRef = useRef<AffineTransform | null>(null);
-  const accumRef = useRef({
-    minX: Infinity,
-    maxX: -Infinity,
-    minY: Infinity,
-    maxY: -Infinity,
-    frameCount: 0,
-  });
+  const accumRef = useRef<GpsCalibration>(createCalibration());
   const trackStateRef = useRef<Record<string, DriverTrackState>>({});
   const driversRef = useRef<Record<string, DriverDotMeta>>({});
   const prevGpsModeRef = useRef(false);
@@ -411,26 +427,46 @@ export function useTrackMap(): TrackMapData {
     // GPS transform calibration
     if (gpsEntries.length === 0 && transformRef.current) {
       transformRef.current = null;
-      accumRef.current = {
-        minX: Infinity,
-        maxX: -Infinity,
-        minY: Infinity,
-        maxY: -Infinity,
-        frameCount: 0,
-      };
+      accumRef.current = createCalibration();
     }
 
-    if (!transformRef.current && hasGps) {
+    // The bbox keeps growing instead of freezing early, because cars still on the
+    // grid or in the pits cover only a fraction of the circuit.
+    if (hasGps) {
       const acc = accumRef.current;
-      for (const [, pos] of gpsEntries) {
-        acc.minX = Math.min(acc.minX, pos.X);
-        acc.maxX = Math.max(acc.maxX, pos.X);
-        acc.minY = Math.min(acc.minY, pos.Y);
-        acc.maxY = Math.max(acc.maxY, pos.Y);
-      }
-      acc.frameCount++;
+      let hasGrown = false;
+      for (const [driverNo, pos] of gpsEntries) {
+        // Cars without a GPS fix report the origin.
+        if (pos.X === 0 && pos.Y === 0) continue;
+        const cellKey = `${Math.floor(pos.X / GPS_CELL_SIZE)},${Math.floor(pos.Y / GPS_CELL_SIZE)}`;
+        let cellDrivers = acc.cellDrivers.get(cellKey);
+        if (!cellDrivers) {
+          cellDrivers = new Set();
+          acc.cellDrivers.set(cellKey, cellDrivers);
+        }
+        cellDrivers.add(driverNo);
+        if (cellDrivers.size < MIN_DRIVERS_PER_CELL) continue;
 
-      if (acc.frameCount >= WARMUP_FRAMES && circuit.points.length > 0) {
+        if (pos.X < acc.minX) {
+          acc.minX = pos.X;
+          hasGrown = true;
+        }
+        if (pos.X > acc.maxX) {
+          acc.maxX = pos.X;
+          hasGrown = true;
+        }
+        if (pos.Y < acc.minY) {
+          acc.minY = pos.Y;
+          hasGrown = true;
+        }
+        if (pos.Y > acc.maxY) {
+          acc.maxY = pos.Y;
+          hasGrown = true;
+        }
+      }
+
+      const hasExtent = acc.maxX > acc.minX && acc.maxY > acc.minY;
+      if (hasGrown && hasExtent && circuit.points.length > 0) {
         let pathMinX = Infinity,
           pathMaxX = -Infinity;
         let pathMinY = Infinity,
@@ -441,8 +477,8 @@ export function useTrackMap(): TrackMapData {
           pathMinY = Math.min(pathMinY, py);
           pathMaxY = Math.max(pathMaxY, py);
         }
-        const gpsW = acc.maxX - acc.minX || 1;
-        const gpsH = acc.maxY - acc.minY || 1;
+        const gpsW = acc.maxX - acc.minX;
+        const gpsH = acc.maxY - acc.minY;
         const vb = parseViewBox(circuit.viewBox);
         transformRef.current = {
           svgCX: vb.x + vb.w / 2,
